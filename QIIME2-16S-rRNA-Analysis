@@ -1,0 +1,130 @@
+##Adapted 16S rRNA sequence analysis QIIME2 pipeline from Carrier et al. (2021)
+
+### Import sequence data ###
+
+qiime tools import \
+--type 'SampleData[PairedEndSequencesWithQuality]' \
+--input-path /data/home/WWU/beavert2/gills \
+--input-format CasavaOneEightSingleLanePerSampleDirFmt \
+--output-path demux-paired-end.qza
+
+### Trim primers ###
+
+qiime cutadapt trim-paired \
+--i-demultiplexed-sequences demux-paired-end.qza \
+--p-front-f CCTACGGGNGGCWGCAG \
+--p-front-r GACTACHVGGGTATCTAATCC \
+--p-error-rate 0 \
+--o-trimmed-sequences trimmed.seqs.qza
+
+### Join paired ends ###
+
+qiime vsearch join-pairs \
+--i-demultiplexed-seqs trimmed.seqs.qza \
+--o-joined-sequences joined.seqs.qza \
+--p-minovlen 20 \
+--p-maxdiffs 10 \
+--p-minmergelen 350 \
+--p-maxmergelen 550 \
+--p-allowmergestagger \
+--p-truncqual 10 \
+--p-minlen 100 \
+--p-qmax 41 \
+--p-qmaxout 41
+
+### Quality control ###
+
+qiime quality-filter q-score \
+--i-demux joined.seqs.qza \
+--o-filtered-sequences filtered.seqs.qza \
+--o-filter-stats filter.stats.qza \
+--p-quality-window 5 \
+--p-min-quality 25
+
+## Visualization ##
+qiime demux summarize \
+--i-data filtered.seqs.qza \
+--o-visualization filtered.seqs.qzv
+
+### Denoising ###
+
+qiime deblur denoise-16S \
+--i-demultiplexed-seqs filtered.seqs.qza \
+--p-trim-length 400 \
+--o-representative-sequences deblur-rep.seqs.qza \
+--o-table table.qza \
+--p-sample-stats \
+--o-stats deblur-stats.qza
+
+## EXAMINE READS POST DENOISING ##
+
+qiime metadata tabulate \
+--m-input-file deblur-stats.qza \
+--o-visualization deblur_stats.qzv
+
+qiime feature-table summarize \
+--i-table table.qza \ 
+--o-visualization table_vis.qzv \
+--m-sample-metadata-file magical_metadata_final.tsv
+
+qiime feature-table tabulate-seqs \
+--i-data deblur-rep.seqs.qza \
+--o-visualization rep-seqs-vis.qzv
+ 
+### Creating a Phylogeny ###
+
+#Align representative sequences
+qiime alignment mafft \
+--i-sequences deblur-rep.seqs.qza \
+--o-alignment alignment.qza
+
+#Mask highly variable, noisy positions in alignment
+
+qiime alignment mask \
+--i-alignment alignment.qza \
+--o-masked-alignment masked-alignment.qza
+
+#Create unrooted phylogeny 
+qiime phylogeny fasttree \
+--i-alignment masked-alignment.qza \
+--o-tree tree.qza
+
+#Root phylogeny at midpoint
+qiime phylogeny midpoint-root \
+--i-tree tree.qza \
+--o-rooted-tree rooted-tree.qza
+
+### Assign Taxonomy w/ trained classifier ###
+
+qiime feature-classifier classify-sklearn \
+--i-classifier silva-138-99-nb-classifier.qza \
+--i-reads deblur-rep.seqs.qza \
+--o-classification classification.qza \
+--p-confidence 0.95 \
+--p-read-orientation same
+
+### Filter Archaea ###
+
+qiime taxa filter-table \
+--i-table table.qza \
+--i-taxonomy classification.qza \
+--p-exclude Archaea \
+--p-mode contains \
+--o-filtered-table filtered-table.qza
+  
+ ### Interactive taxa barplot visualization ###
+ 
+qiime taxa barplot \
+--i-table filtered-table.qza \
+--i-taxonomy classification.qza \
+--m-metadata-file magical_metadata_final.tsv \
+--o-visualization taxa_barplot.qzv
+
+ ### Total observed ASV table ###
+ 
+qiime diversity alpha \
+--i-table filtered-table.qza \
+--p-metric observed_features \
+--o-alpha-diversity obs-OTUs.qza
+
+### All further data analysis is provided in the Part II R-script ###
