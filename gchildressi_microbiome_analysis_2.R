@@ -87,6 +87,44 @@ theme_set(theme_classic())
 ordu1 = ordinate(physeq.vst, "PCoA", "unifrac", weighted=FALSE)
 plot_ordination(physeq.vst, ordu1, axes = c(1,2), color = "group") + geom_point(size = 3)
 
+#ANCOM-BC2 Analysis
+library("ANCOMBC")
+#Remove adult gill and water samples
+physeq_juv_vel_pedi<- subset_samples(physeq,
+                         sample_names(physeq) != "WA6100" &
+                           sample_names(physeq) != "WA6098" &
+                           sample_names(physeq) != "WA6099" &
+                           sample_names(physeq) != "WA6101" &
+                           sample_names(physeq) != "WA6102" &
+                           sample_names(physeq) != "56229" &
+                           sample_names(physeq) != "56230")
+
+#re-order sample groups depending on desired contrasts
+sample_data(physeq_juv_vel_pedi)$group<-factor(sample_data(physeq_juv_vel_pedi)$group, levels = c("Veliger","Pediveliger","Juvenile"))
+group<-sample_data(physeq_gill_juv_vel_pedi)$group
+
+#Run ANCOMBC test
+out = ancombc(data = NULL, assay_name = NULL,
+               tax_level = "Genus", phyloseq = physeq_juv_vel_pedi,
+               formula = "group",
+               p_adj_method = "holm", prv_cut = 0.05,
+               group = "group", struc_zero = TRUE, neg_lb = TRUE, tol = 1e-5,
+               max_iter = 100, conserve = TRUE, alpha = 0.05, global = TRUE,
+               n_cl = 1, verbose = TRUE)
+
+res = out$res
+res_global = out$res_global
+
+#obtain a table of adjusted p-values
+tab_q = res$q
+colnames(tab_q) = col_name
+tab_q %>% 
+  datatable(caption = "Adjusted p-values from the Primary Result") %>%
+  formatRound(col_name[-1], digits = 6)
+
+
+
+
 #Hierarchical cluster analysis
 
 # This is the actual hierarchical clustering call, specifying average-link clustering
@@ -108,15 +146,15 @@ physeq1<- subset_samples(physeq,
 #remove taxa with unknown families
 physeq2 <- subset_taxa(physeq1, !is.na(Family) & !Family %in% c("", "uncharacterized"))
 
+#transform values into relative abundances
+physeq3 = transform_sample_counts(physeq2, function(x) x / sum(x) )
+otu_table(physeq3)
+                                  
 #sort top 50 ASVs#
 topN = 50
-most_abundant_taxa = sort(taxa_sums(physeq2), TRUE)[1:topN]
+most_abundant_taxa = sort(taxa_sums(physeq3), TRUE)[1:topN]
 print(most_abundant_taxa)
-physeq3 = prune_taxa(names(most_abundant_taxa), physeq2)
-otu_table(physeq3)
-
-#transform values into relative abundances
-physeq4 = transform_sample_counts(physeq3, function(x) x / sum(x) )
+physeq4 = prune_taxa(names(most_abundant_taxa), physeq3)
 otu_table(physeq4)
 
 ## Family Level ##
